@@ -273,6 +273,10 @@ Options:
 
 System now starts automatically when you log in.
 
+### Google Cloud (24/7 Remote Server)
+
+Run the system on a Google Cloud VM for ~$7/month. See **[DEPLOY_GCP.md](DEPLOY_GCP.md)** for full instructions.
+
 ### Windows Service (Always Running)
 
 For 24/7 operation, use NSSM (Non-Sucking Service Manager):
