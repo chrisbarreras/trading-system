@@ -24,6 +24,7 @@ import os
 import subprocess
 import requests
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from scanner.scanner import create_scanner
 
@@ -222,24 +223,30 @@ def run_scan(symbols, strategy, dry_run=False):
 
 def is_market_hours():
     """
-    Check if current time is during market hours (9:30 AM - 4:00 PM ET).
-    For simplicity, this checks your local time. Adjust as needed.
+    Check if current time is during trading hours in US Eastern time.
+    Regular hours: 9:30 AM - 4:00 PM ET
+    Extended hours: 4:00 AM - 8:00 PM ET (when EXTENDED_HOURS_ENABLED=true)
     """
-    now = datetime.now()
+    et = ZoneInfo("America/New_York")
+    now = datetime.now(et)
 
     # Skip weekends
-    if now.weekday() >= 5:  # Saturday = 5, Sunday = 6
+    if now.weekday() >= 5:
         return False
 
-    # Check time (simplified - doesn't account for timezone)
     hour = now.hour
+    minute = now.minute
 
-    # Approximate market hours (adjust for your timezone)
-    # US market: 9:30 AM - 4:00 PM ET
-    # If you're in EST/EDT: 9-16
-    # If you're in PST/PDT: 6-13
-    # Adjust these values for your timezone
-    return 9 <= hour < 16
+    extended = os.environ.get("EXTENDED_HOURS_ENABLED", "false").lower() == "true"
+
+    if extended:
+        # Pre-market 4:00 AM to after-hours 8:00 PM ET
+        return 4 <= hour < 20
+    else:
+        # Regular market: 9:30 AM - 4:00 PM ET
+        if hour == 9:
+            return minute >= 30
+        return 10 <= hour < 16
 
 
 def scheduled_scan(symbols, strategy, dry_run=False):

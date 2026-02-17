@@ -4,8 +4,10 @@ Handles all interactions with the Alpaca Trading API.
 """
 from typing import Dict, List, Optional
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest, GetOrdersRequest
+from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest, GetOrdersRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockLatestTradeRequest
 from alpaca.common.exceptions import APIError
 import structlog
 
@@ -44,6 +46,22 @@ class AlpacaBroker:
         )
 
         self.settings = settings
+        self.data_client = StockHistoricalDataClient(
+            api_key=settings.alpaca_api_key,
+            secret_key=settings.alpaca_secret_key
+        )
+
+    def get_current_price(self, symbol: str) -> Optional[float]:
+        """Get the latest trade price for a symbol."""
+        try:
+            request = StockLatestTradeRequest(symbol_or_symbols=symbol)
+            trades = self.data_client.get_stock_latest_trade(request)
+            if symbol in trades:
+                return float(trades[symbol].price)
+            return None
+        except Exception as e:
+            logger.error("failed_to_get_price", symbol=symbol, error=str(e))
+            return None
 
     def get_account(self) -> Dict:
         """
@@ -105,7 +123,8 @@ class AlpacaBroker:
         symbol: str,
         side: str,
         quantity: float,
-        order_type: str = "market"
+        order_type: str = "market",
+        limit_price: Optional[float] = None
     ) -> Dict:
         """
         Submit an order to Alpaca.
@@ -114,7 +133,8 @@ class AlpacaBroker:
             symbol: Stock symbol (e.g., "AAPL")
             side: "buy" or "sell"
             quantity: Number of shares
-            order_type: "market" or "limit" (only market supported for now)
+            order_type: "market" or "limit"
+            limit_price: Required for limit orders and extended hours
 
         Returns:
             Dict with order information
@@ -123,16 +143,25 @@ class AlpacaBroker:
             BrokerError: If order submission fails
         """
         try:
-            # Convert side string to OrderSide enum
+            settings = get_settings()
             order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
 
-            # Create market order request
-            order_request = MarketOrderRequest(
-                symbol=symbol,
-                qty=quantity,
-                side=order_side,
-                time_in_force=TimeInForce.DAY
-            )
+            if settings.extended_hours_enabled and limit_price is not None:
+                order_request = LimitOrderRequest(
+                    symbol=symbol,
+                    qty=quantity,
+                    side=order_side,
+                    limit_price=round(limit_price, 2),
+                    time_in_force=TimeInForce.GTC,
+                    extended_hours=True
+                )
+            else:
+                order_request = MarketOrderRequest(
+                    symbol=symbol,
+                    qty=quantity,
+                    side=order_side,
+                    time_in_force=TimeInForce.DAY
+                )
 
             # Submit order
             order = self.client.submit_order(order_request)

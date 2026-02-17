@@ -89,12 +89,31 @@ class TradeExecutor:
             # Prepare order
             order_details = strategy.prepare_order(signal_dict, account_info)
 
+            # Calculate limit price for extended hours trading
+            limit_price = None
+            if self.settings.extended_hours_enabled:
+                current_price = self.broker.get_current_price(order_details["symbol"])
+                if current_price:
+                    buffer = 0.005  # 0.5% buffer
+                    if order_details["side"] == "buy":
+                        limit_price = current_price * (1 + buffer)
+                    else:
+                        limit_price = current_price * (1 - buffer)
+                    logger.info(
+                        "extended_hours_limit_price",
+                        symbol=order_details["symbol"],
+                        current_price=current_price,
+                        limit_price=round(limit_price, 2),
+                        side=order_details["side"]
+                    )
+
             # Submit order to broker
             order_result = self.broker.submit_order(
                 symbol=order_details["symbol"],
                 side=order_details["side"],
                 quantity=order_details["quantity"],
-                order_type=order_details.get("order_type", "market")
+                order_type=order_details.get("order_type", "market"),
+                limit_price=limit_price
             )
 
             # Save trade to database

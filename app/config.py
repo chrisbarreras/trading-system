@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # Extended Hours Trading
+    extended_hours_enabled: bool = False
+
     # Server Configuration
     host: str = "0.0.0.0"
     port: int = 8080
