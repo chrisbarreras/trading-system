@@ -81,6 +81,8 @@ class TradeExecutor:
 
             # Get account info
             account_info = self.broker.get_account()
+            positions = self.broker.get_positions()
+            account_info["open_positions"] = len(positions)
 
             # Check if we should execute
             if not strategy.should_execute(signal_dict, account_info):
@@ -89,23 +91,46 @@ class TradeExecutor:
             # Prepare order
             order_details = strategy.prepare_order(signal_dict, account_info)
 
+            # Always fetch the live market price so we can enforce the position
+            # limit in dollar terms regardless of what price the signal contained.
+            # (Signal price drives share count; if it's wrong, actual spend can
+            # far exceed MAX_POSITION_SIZE_USD without this check.)
+            current_price = self.broker.get_current_price(order_details["symbol"])
+
+            if current_price and order_details["quantity"] > 0:
+                actual_cost = order_details["quantity"] * current_price
+                if actual_cost > self.settings.max_position_size_usd:
+                    adjusted_quantity = int(self.settings.max_position_size_usd / current_price)
+                    logger.warning(
+                        "position_size_adjusted_for_market_price",
+                        symbol=order_details["symbol"],
+                        original_quantity=order_details["quantity"],
+                        adjusted_quantity=adjusted_quantity,
+                        signal_price=signal_dict.get("price"),
+                        market_price=current_price,
+                        actual_cost=actual_cost,
+                        max_position_usd=self.settings.max_position_size_usd,
+                    )
+                    order_details["quantity"] = adjusted_quantity
+
+            if order_details["quantity"] <= 0:
+                raise ValidationError("Position size is zero after market price validation")
+
             # Calculate limit price for extended hours trading
             limit_price = None
-            if self.settings.extended_hours_enabled:
-                current_price = self.broker.get_current_price(order_details["symbol"])
-                if current_price:
-                    buffer = 0.005  # 0.5% buffer
-                    if order_details["side"] == "buy":
-                        limit_price = current_price * (1 + buffer)
-                    else:
-                        limit_price = current_price * (1 - buffer)
-                    logger.info(
-                        "extended_hours_limit_price",
-                        symbol=order_details["symbol"],
-                        current_price=current_price,
-                        limit_price=round(limit_price, 2),
-                        side=order_details["side"]
-                    )
+            if self.settings.extended_hours_enabled and current_price:
+                buffer = 0.005  # 0.5% buffer
+                if order_details["side"] == "buy":
+                    limit_price = current_price * (1 + buffer)
+                else:
+                    limit_price = current_price * (1 - buffer)
+                logger.info(
+                    "extended_hours_limit_price",
+                    symbol=order_details["symbol"],
+                    current_price=current_price,
+                    limit_price=round(limit_price, 2),
+                    side=order_details["side"]
+                )
 
             # Submit order to broker
             order_result = self.broker.submit_order(

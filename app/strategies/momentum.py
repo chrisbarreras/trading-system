@@ -98,10 +98,17 @@ class MomentumStrategy(BaseStrategy):
                 )
                 return False
 
-        # Keep existing max_positions check structure (currently commented)
         if signal["action"] == "buy":
             max_positions = self.config.get("max_positions", 5)
-            # Future: Check actual position count
+            open_positions = account_info.get("open_positions", 0)
+            if open_positions >= max_positions:
+                logger.warning(
+                    "max_positions_reached",
+                    strategy=self.name,
+                    open_positions=open_positions,
+                    max_positions=max_positions,
+                )
+                return False
 
         return True
 
@@ -199,16 +206,23 @@ class MomentumStrategy(BaseStrategy):
         # Ensure at least 1 share
         quantity = max(1, quantity)
 
-        # Final safety check: can we actually afford this?
+        # Final safety check: if calculated cost exceeds buying power, scale
+        # down — but cap at max_position_usd so this path cannot bypass the
+        # position limit (e.g. when signal price differs from market price).
         final_cost = quantity * price
         if final_cost > buying_power:
-            quantity = int(buying_power / price)
+            max_affordable_usd = min(buying_power, max_position_usd)
+            quantity = int(max_affordable_usd / price)
             logger.warning(
-                "position_size_scaled_to_max_affordable",
+                "position_size_reduced_insufficient_buying_power",
                 strategy=self.name,
                 symbol=signal["ticker"],
-                adjusted_quantity=quantity
+                adjusted_quantity=quantity,
+                buying_power=buying_power,
+                max_position_usd=max_position_usd,
             )
+            if quantity == 0:
+                return 0
 
         logger.info(
             "position_size_calculated",
