@@ -138,7 +138,7 @@ Requires=trading-server.service
 User=YOUR_USERNAME
 WorkingDirectory=/home/YOUR_USERNAME/trading-system
 Environment=PATH=/home/YOUR_USERNAME/trading-system/venv/bin:/usr/bin
-ExecStart=/home/YOUR_USERNAME/trading-system/venv/bin/python run_scanner.py --schedule --strategy rsi
+ExecStart=/home/YOUR_USERNAME/trading-system/venv/bin/python run_scanner.py --schedule --strategy rsi --symbols-file stock_symbols_top500.txt
 Restart=always
 RestartSec=30
 
