@@ -52,14 +52,18 @@ class RSIStrategy(TechnicalStrategy):
             'action': None
         }
 
-        # Check for oversold (buy signal)
-        if latest['rsi'] < self.oversold:
-            result['signals'].append(f"RSI oversold ({latest['rsi']:.1f} < {self.oversold})")
+        # BUY: RSI crosses up through oversold threshold (was below, now above)
+        if prev['rsi'] < self.oversold and latest['rsi'] >= self.oversold:
+            result['signals'].append(
+                f"RSI crossed up through oversold ({prev['rsi']:.1f} -> {latest['rsi']:.1f}, threshold={self.oversold})"
+            )
             result['action'] = 'buy'
 
-        # Check for overbought (sell signal)
-        elif latest['rsi'] > self.overbought:
-            result['signals'].append(f"RSI overbought ({latest['rsi']:.1f} > {self.overbought})")
+        # SELL: RSI crosses down through overbought threshold (was above, now below)
+        elif prev['rsi'] > self.overbought and latest['rsi'] <= self.overbought:
+            result['signals'].append(
+                f"RSI crossed down through overbought ({prev['rsi']:.1f} -> {latest['rsi']:.1f}, threshold={self.overbought})"
+            )
             result['action'] = 'sell'
 
         return result
@@ -159,10 +163,15 @@ class BollingerBandsStrategy(TechnicalStrategy):
     def analyze(self, df: pd.DataFrame, symbol: str) -> Dict:
         """Generate signals based on Bollinger Bands."""
         # Calculate Bollinger Bands
+        # Use prefix matching instead of exact f-string names because pandas_ta
+        # may format the std suffix differently (e.g. "2.0" vs "2") across versions.
         bbands = ta.bbands(df['close'], length=self.period, std=self.std)
-        df['bb_upper'] = bbands[f'BBU_{self.period}_{self.std}']
-        df['bb_middle'] = bbands[f'BBM_{self.period}_{self.std}']
-        df['bb_lower'] = bbands[f'BBL_{self.period}_{self.std}']
+        upper_col = next(c for c in bbands.columns if c.startswith('BBU_'))
+        middle_col = next(c for c in bbands.columns if c.startswith('BBM_'))
+        lower_col = next(c for c in bbands.columns if c.startswith('BBL_'))
+        df['bb_upper'] = bbands[upper_col]
+        df['bb_middle'] = bbands[middle_col]
+        df['bb_lower'] = bbands[lower_col]
 
         # Get latest values
         latest = df.iloc[-1]

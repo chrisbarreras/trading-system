@@ -36,18 +36,29 @@ async def health_check():
 @router.get("/status")
 async def system_status():
     """
-    Get trading system status including account info and configuration.
+    Get trading system status.
+
+    When the multi-account orchestrator is running, returns status for all
+    configured accounts. Falls back to single-account status otherwise.
 
     Returns:
         Dict with system status
     """
+    # Try orchestrator first (multi-account mode)
+    try:
+        from trading.orchestrator import get_orchestrator
+        orchestrator = get_orchestrator()
+        if orchestrator is not None:
+            return orchestrator.get_status()
+    except Exception as e:
+        logger.warning("orchestrator_status_unavailable", error=str(e))
+
+    # Fall back to single-account status (webhook-only mode)
     settings = get_settings()
     broker = get_broker()
-
     try:
         account = broker.get_account()
         positions = broker.get_positions()
-
         return {
             "trading_mode": settings.trading_mode,
             "account": account,
@@ -57,9 +68,9 @@ async def system_status():
                 "max_positions": settings.max_positions,
                 "position_size_pct": settings.position_size_pct,
                 "max_daily_trades": settings.max_daily_trades,
-                "max_position_size_usd": settings.max_position_size_usd
+                "max_position_size_usd": settings.max_position_size_usd,
             },
-            "registered_strategies": StrategyRegistry.list_strategies()
+            "registered_strategies": StrategyRegistry.list_strategies(),
         }
     except BrokerError as e:
         logger.error("failed_to_get_status", error=str(e))

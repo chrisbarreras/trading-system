@@ -27,28 +27,41 @@ class AlpacaBroker:
     Provides methods to interact with Alpaca's trading API.
     """
 
-    def __init__(self):
-        """Initialize Alpaca trading client based on configuration."""
-        settings = get_settings()
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        secret_key: Optional[str] = None,
+        paper: bool = True,
+        extended_hours: bool = False,
+    ):
+        """
+        Initialize Alpaca trading client.
 
-        # Log initialization
-        logger.info(
-            "initializing_alpaca_broker",
-            mode=settings.trading_mode,
-            base_url=settings.alpaca_base_url
-        )
+        Args:
+            api_key: Alpaca API key. If None, reads from settings.
+            secret_key: Alpaca secret key. If None, reads from settings.
+            paper: Whether to use paper trading (default True).
+            extended_hours: Whether to use extended hours trading (default False).
+        """
+        if api_key is None or secret_key is None:
+            settings = get_settings()
+            api_key = api_key or settings.alpaca_api_key
+            secret_key = secret_key or settings.alpaca_secret_key
+            paper = settings.is_paper_trading
+            extended_hours = settings.extended_hours_enabled
 
-        # Create trading client
+        self.extended_hours = extended_hours
+
+        logger.info("initializing_alpaca_broker", paper=paper)
+
         self.client = TradingClient(
-            api_key=settings.alpaca_api_key,
-            secret_key=settings.alpaca_secret_key,
-            paper=settings.is_paper_trading
+            api_key=api_key,
+            secret_key=secret_key,
+            paper=paper,
         )
-
-        self.settings = settings
         self.data_client = StockHistoricalDataClient(
-            api_key=settings.alpaca_api_key,
-            secret_key=settings.alpaca_secret_key
+            api_key=api_key,
+            secret_key=secret_key,
         )
 
     def get_current_price(self, symbol: str) -> Optional[float]:
@@ -143,10 +156,9 @@ class AlpacaBroker:
             BrokerError: If order submission fails
         """
         try:
-            settings = get_settings()
             order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
 
-            if settings.extended_hours_enabled and limit_price is not None:
+            if self.extended_hours and limit_price is not None:
                 order_request = LimitOrderRequest(
                     symbol=symbol,
                     qty=quantity,
@@ -313,10 +325,10 @@ _broker_instance: Optional[AlpacaBroker] = None
 
 def get_broker() -> AlpacaBroker:
     """
-    Get singleton broker instance.
-    Use this function to access the broker throughout the application.
+    Get singleton broker instance (reads credentials from settings).
+    Used by the webhook endpoint and admin API.
     """
     global _broker_instance
     if _broker_instance is None:
-        _broker_instance = AlpacaBroker()
+        _broker_instance = AlpacaBroker()  # falls back to settings when no args given
     return _broker_instance

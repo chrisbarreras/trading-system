@@ -12,14 +12,24 @@ class DataSource(ABC):
     """Abstract base class for market data sources."""
 
     @abstractmethod
-    def get_bars(self, symbol: str, period: str = "1mo", interval: str = "1d") -> pd.DataFrame:
+    def get_bars(
+        self,
+        symbol: str,
+        period: str = "1mo",
+        interval: str = "1d",
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+    ) -> pd.DataFrame:
         """
         Get historical price bars.
 
         Args:
             symbol: Stock symbol (e.g., "AAPL")
-            period: Time period (e.g., "1d", "5d", "1mo", "3mo", "1y")
+            period: Time period (e.g., "1d", "5d", "1mo", "3mo", "1y").
+                    Ignored when start is provided.
             interval: Bar interval (e.g., "1m", "5m", "1h", "1d")
+            start: Explicit start datetime (enables backtesting with custom date ranges).
+            end: Explicit end datetime. Defaults to now when start is provided.
 
         Returns:
             DataFrame with columns: open, high, low, close, volume
@@ -40,7 +50,14 @@ class YahooFinanceSource(DataSource):
         import yfinance as yf
         self.yf = yf
 
-    def get_bars(self, symbol: str, period: str = "1mo", interval: str = "1d") -> pd.DataFrame:
+    def get_bars(
+        self,
+        symbol: str,
+        period: str = "1mo",
+        interval: str = "1d",
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+    ) -> pd.DataFrame:
         """
         Get historical bars from Yahoo Finance.
 
@@ -48,12 +65,17 @@ class YahooFinanceSource(DataSource):
             symbol: Stock symbol
             period: Valid periods: 1d,5d,1mo,3mo,6mo,1y,2y,5y,10y,ytd,max
             interval: Valid intervals: 1m,2m,5m,15m,30m,60m,90m,1h,1d,5d,1wk,1mo,3mo
+            start: Explicit start datetime (overrides period).
+            end: Explicit end datetime (used with start).
 
         Returns:
             DataFrame with lowercase column names
         """
         try:
-            df = self.yf.download(symbol, period=period, interval=interval, progress=False)
+            if start is not None:
+                df = self.yf.download(symbol, start=start, end=end, interval=interval, progress=False)
+            else:
+                df = self.yf.download(symbol, period=period, interval=interval, progress=False)
 
             if df.empty:
                 raise ValueError(f"No data returned for {symbol}")
@@ -108,27 +130,29 @@ class AlpacaDataSource(DataSource):
         from alpaca.data.historical import StockHistoricalDataClient
         self.client = StockHistoricalDataClient(api_key, secret_key)
 
-    def get_bars(self, symbol: str, period: str = "1mo", interval: str = "1d") -> pd.DataFrame:
+    def get_bars(
+        self,
+        symbol: str,
+        period: str = "1mo",
+        interval: str = "1d",
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+    ) -> pd.DataFrame:
         """
         Get historical bars from Alpaca.
 
         Args:
             symbol: Stock symbol
-            period: Period string (e.g., "1mo", "3mo", "1y")
-            interval: Interval string (e.g., "1m", "1h", "1d")
+            period: Period string (e.g., "1mo", "3mo", "1y"). Ignored when start is provided.
+            interval: Interval string (e.g., "1m", "5m", "15m", "1h", "1d")
+            start: Explicit start datetime (for backtesting with custom date ranges).
+            end: Explicit end datetime. Defaults to now when start is provided.
 
         Returns:
             DataFrame with lowercase column names
         """
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame
-
-        # Convert period to days
-        period_map = {
-            "1d": 1, "5d": 5, "1mo": 30, "3mo": 90,
-            "6mo": 180, "1y": 365, "2y": 730
-        }
-        days = period_map.get(period, 30)
 
         # Convert interval to TimeFrame
         interval_map = {
@@ -140,19 +164,44 @@ class AlpacaDataSource(DataSource):
         }
         timeframe = interval_map.get(interval, TimeFrame.Day)
 
-        # Create request
+        # Determine date range
+        if start is not None:
+            request_start = start
+            request_end = end  # None means Alpaca defaults to now
+        else:
+            period_map = {
+                "1d": 1, "5d": 5, "1mo": 30, "3mo": 90,
+                "6mo": 180, "1y": 365, "2y": 730
+            }
+            days = period_map.get(period, 30)
+            request_start = datetime.now() - timedelta(days=days)
+            request_end = None
+
         request = StockBarsRequest(
             symbol_or_symbols=[symbol],
             timeframe=timeframe,
-            start=datetime.now() - timedelta(days=days)
+            start=request_start,
+            end=request_end,
         )
 
-        # Get bars
         bars = self.client.get_stock_bars(request)
         df = bars.df
 
-        # Reset index to get timestamp as column
+        if df.empty:
+            raise ValueError(f"No data returned for {symbol}")
+
         df = df.reset_index()
+
+        # alpaca-py returns a MultiIndex (symbol, timestamp) for multi-symbol requests
+        # and a single Index (timestamp) for single-symbol requests. After reset_index()
+        # the timestamp should be a column in both cases, but delisted/renamed symbols
+        # may produce an unexpected structure.
+        if 'timestamp' not in df.columns:
+            raise ValueError(
+                f"No timestamp column found in Alpaca response for {symbol}. "
+                f"Columns: {list(df.columns)}"
+            )
+
         df = df.set_index('timestamp')
 
         return df
