@@ -10,6 +10,9 @@ Usage:
 import argparse
 import threading
 import structlog
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from app.utils.logger import configure_logging
 
