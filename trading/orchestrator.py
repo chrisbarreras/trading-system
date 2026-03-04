@@ -108,10 +108,37 @@ class Orchestrator:
                 exc_info=True,
             )
 
-    def _close_day_positions(self) -> None:
-        """EOD close for all day-trading accounts."""
+    def _check_swing_scan(self, runner: AccountRunner) -> None:
+        """
+        Fire the daily swing scan in the 09:35–09:39 ET window, once per day.
+
+        The `schedule` library uses the server's local clock (UTC on GCP), so
+        schedule.every().day.at("09:35") would fire at 09:35 UTC = ~4:35 AM ET,
+        which is before market open. Instead we poll every 5 minutes and do the
+        ET time check ourselves, which is also DST-safe.
+        """
         now = datetime.now(ET)
         if now.weekday() >= 5:
+            return
+        if not (now.hour == 9 and 35 <= now.minute < 40):
+            return
+        # Don't re-scan if we already ran today (last_scan is stored as naive UTC)
+        if runner.last_scan is not None:
+            from datetime import timezone
+            last_et = runner.last_scan.replace(tzinfo=timezone.utc).astimezone(ET)
+            if last_et.date() == now.date():
+                return
+        self._safe_scan(runner)
+
+    def _check_eod_close(self) -> None:
+        """
+        Close day-trading positions at 15:55 ET.
+        Polled every minute; the schedule library's at("15:55") would fire in UTC.
+        """
+        now = datetime.now(ET)
+        if now.weekday() >= 5:
+            return
+        if not (now.hour == 15 and now.minute == 55):
             return
         for runner in self.runners.values():
             if runner.config.type == "day":
@@ -130,9 +157,11 @@ class Orchestrator:
             if runner.config.type == "day":
                 schedule.every(15).minutes.do(self._safe_scan, runner)
             else:
-                schedule.every().day.at("09:35").do(self._safe_scan, runner)
+                # Poll every 5 min; _check_swing_scan enforces the 09:35 ET window
+                schedule.every(5).minutes.do(self._check_swing_scan, runner)
 
-        schedule.every().day.at("15:55").do(self._close_day_positions)
+        # Poll every minute for EOD close; _check_eod_close enforces 15:55 ET
+        schedule.every(1).minutes.do(self._check_eod_close)
 
         logger.info("jobs_scheduled", total_runners=len(self.runners))
 
