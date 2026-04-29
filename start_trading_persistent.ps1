@@ -4,7 +4,7 @@
 Write-Host "Starting Autonomous Trading System..." -ForegroundColor Green
 
 # Navigate to trading system directory
-Set-Location "c:\Users\chris\trading-system"
+Set-Location "$env:USERPROFILE\trading-system"
 
 # Start trading system server in background
 Write-Host "Starting trading system server..." -ForegroundColor Cyan

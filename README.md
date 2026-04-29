@@ -266,7 +266,7 @@ Options:
 5. **Actions Tab:**
    - New → Start a program
    - Program: `powershell.exe`
-   - Arguments: `-ExecutionPolicy Bypass -File "c:\Users\chris\trading-system\start_trading_persistent.ps1"`
+   - Arguments: `-ExecutionPolicy Bypass -File "%USERPROFILE%\trading-system\start_trading_persistent.ps1"`
 6. **Conditions Tab:**
    - Uncheck: "Start only if on AC power"
 7. Click OK
@@ -289,13 +289,13 @@ For 24/7 operation, use NSSM (Non-Sucking Service Manager):
 cd C:\nssm\win64
 
 # Install trading system service
-.\nssm.exe install TradingSystemServer "C:\Users\chris\AppData\Local\Programs\Python\Python313\python.exe"
-.\nssm.exe set TradingSystemServer AppDirectory "c:\Users\chris\trading-system"
+.\nssm.exe install TradingSystemServer "%USERPROFILE%\AppData\Local\Programs\Python\Python313\python.exe"
+.\nssm.exe set TradingSystemServer AppDirectory "%USERPROFILE%\trading-system"
 .\nssm.exe set TradingSystemServer AppParameters "-m uvicorn app.main:app --host 0.0.0.0 --port 8080"
 
 # Install scanner service
-.\nssm.exe install TradingScanner "C:\Users\chris\AppData\Local\Programs\Python\Python313\python.exe"
-.\nssm.exe set TradingScanner AppDirectory "c:\Users\chris\trading-system"
+.\nssm.exe install TradingScanner "%USERPROFILE%\AppData\Local\Programs\Python\Python313\python.exe"
+.\nssm.exe set TradingScanner AppDirectory "%USERPROFILE%\trading-system"
 .\nssm.exe set TradingScanner AppParameters "run_scanner.py --schedule --strategy rsi"
 .\nssm.exe set TradingScanner DependOnService TradingSystemServer
 
@@ -368,7 +368,7 @@ update_stock_list.bat
 3. Name: "Update Stock Lists"
 4. Trigger: Weekly (Sunday at 2:00 AM recommended)
 5. Action: Start a program
-   - Program: `C:\Users\chris\trading-system\update_stock_list.bat`
+   - Program: `%USERPROFILE%\trading-system\update_stock_list.bat`
 6. Finish
 
 This ensures fresh stock data even when scanner isn't running.
