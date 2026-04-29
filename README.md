@@ -1,5 +1,7 @@
 # Autonomous Stock Trading System
 
+![Architecture](docs/architecture.png)
+
 End-to-end automated equities trading platform: scans the market on a schedule, generates signals from technical strategies, executes trades through the Alpaca brokerage, and reports performance — runnable in paper or live mode, on a laptop or a $7/month cloud VM.
 
 The system is structured as a single-process orchestrator that supervises any number of independently-configured trading accounts (each with its own strategy, risk profile, and broker credentials), backed by a FastAPI control plane and a walk-forward backtest engine for offline strategy evaluation.
@@ -15,49 +17,16 @@ The system is structured as a single-process orchestrator that supervises any nu
 
 ## Architecture
 
-```
-                     ┌─────────────────────────────────────┐
-                     │          FastAPI control plane       │
-                     │  /webhook/tradingview · /status     │
-                     │  /trades · /health · /docs          │
-                     └─────────────────────────────────────┘
-                                       ▲
-                                       │ HTTP (HMAC-signed)
-                                       │
-┌──────────────────────────────────────┴──────────────────────────────────────┐
-│                              Orchestrator                                    │
-│                                                                              │
-│   ┌──────────────────────┐   ┌──────────────────────┐   ┌────────────────┐  │
-│   │  AccountRunner       │   │  AccountRunner       │   │  AccountRunner │  │
-│   │  swing_rsi_1         │   │  day_macd_1          │   │  swing_combo_1 │  │
-│   │  • daily bars 09:35  │   │  • 15m bars / 15min  │   │  • daily bars  │  │
-│   │  • RSI strategy      │   │  • MACD strategy     │   │  • Combo       │  │
-│   └─────────┬────────────┘   └─────────┬────────────┘   └───────┬────────┘  │
-│             │                          │                         │           │
-│             └────────────┬─────────────┴────────────┬────────────┘           │
-└──────────────────────────┼──────────────────────────┼────────────────────────┘
-                           │                          │
-              ┌────────────▼───────────┐  ┌───────────▼────────────┐
-              │  Scanner               │  │  TradeExecutor          │
-              │  • Yahoo / Alpaca data │  │  • Risk validation      │
-              │  • Strategy evaluation │  │  • Position sizing      │
-              │  • Signal generation   │  │  • Order placement      │
-              └────────────────────────┘  └───────────┬────────────┘
-                                                      │
-                                          ┌───────────▼────────────┐
-                                          │  Alpaca brokerage API  │
-                                          └────────────────────────┘
+The diagram at the top of this README shows the runtime topology. In short:
 
-                                                  +
-                              ┌────────────────────────────────────┐
-                              │  Backtest engine (offline)         │
-                              │  • Walk-forward, no lookahead      │
-                              │  • Multi-strategy comparison       │
-                              │  • Metrics: Sharpe, max DD, etc.   │
-                              └────────────────────────────────────┘
-```
+- **Control plane** — a FastAPI server exposes webhook, status, trades, and health endpoints; the Orchestrator schedules account runners on ET-aware cron rules.
+- **Multi-account runners** — each configured account is an independent runner with its own strategy, risk profile, and Alpaca credentials. Swing accounts wake at 09:35 ET; day accounts run every 15 minutes during market hours and flatten at 15:55 ET.
+- **Trading pipeline** — runners feed the Scanner (which evaluates registered strategies against market data) and the Trade Executor (which validates signals, sizes positions, and places orders).
+- **External services** — Yahoo Finance and Alpaca for market data; Alpaca for order routing.
+- **Persistence** — SQLite by default (signals, trades, snapshots) with Alembic migrations. Swappable for PostgreSQL by changing one connection string.
+- **Backtest engine** — offline path that replays the same strategies over historical bars with no lookahead bias and full portfolio constraint enforcement.
 
-State lives in SQLite by default (signals, trades, account snapshots) with Alembic migrations. The same models work against PostgreSQL by changing one connection string.
+The mermaid source for the diagram lives at [`docs/architecture.mmd`](docs/architecture.mmd).
 
 ## Tech Stack
 
