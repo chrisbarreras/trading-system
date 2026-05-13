@@ -2,6 +2,7 @@
 Alpaca Broker abstraction layer.
 Handles all interactions with the Alpaca Trading API.
 """
+from datetime import datetime
 from typing import Dict, List, Optional
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest, GetOrdersRequest
@@ -130,6 +131,35 @@ class AlpacaBroker:
         except APIError as e:
             logger.error("failed_to_get_positions", error=str(e))
             raise BrokerError(f"Failed to get positions: {str(e)}")
+
+    def get_position_entry_times(self, symbols: List[str]) -> Dict[str, datetime]:
+        """
+        For each symbol, return the filled_at timestamp of the most recent BUY
+        order. Used by exit rules that need to know how long a position has
+        been held. Missing entries mean no filled buy was found.
+        """
+        if not symbols:
+            return {}
+        try:
+            request = GetOrdersRequest(
+                status=QueryOrderStatus.CLOSED,
+                symbols=list(symbols),
+                side=OrderSide.BUY,
+                limit=500,
+            )
+            orders = self.client.get_orders(filter=request)
+        except APIError as e:
+            logger.error("failed_to_get_orders", error=str(e))
+            raise BrokerError(f"Failed to get orders: {str(e)}")
+
+        latest: Dict[str, datetime] = {}
+        for order in orders:
+            if not order.filled_at:
+                continue
+            current = latest.get(order.symbol)
+            if current is None or order.filled_at > current:
+                latest[order.symbol] = order.filled_at
+        return latest
 
     def submit_order(
         self,

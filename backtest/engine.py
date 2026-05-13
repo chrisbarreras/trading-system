@@ -16,6 +16,7 @@ import structlog
 from scanner.data_source import AlpacaDataSource
 from scanner.strategies import TechnicalStrategy
 from trading.config_loader import RiskConfig
+from trading.exit_rules import ExitConfig, evaluate_exit
 from backtest.metrics import ClosedTrade, calculate_metrics
 
 logger = structlog.get_logger()
@@ -43,6 +44,7 @@ class SignalStats:
     sell_executed: int = 0
     sell_skipped_not_holding: int = 0
     eob_closes: int = 0
+    exit_rule_closes: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -56,6 +58,7 @@ class SignalStats:
             "sell_executed": self.sell_executed,
             "sell_skipped_not_holding": self.sell_skipped_not_holding,
             "eob_closes": self.eob_closes,
+            "exit_rule_closes": self.exit_rule_closes,
         }
 
 
@@ -81,6 +84,7 @@ class BacktestEngine:
         alpaca_secret_key: str,
         account_type: str = "swing",  # "swing" | "day"
         warmup_bars: int = 252,
+        exits: Optional[ExitConfig] = None,
     ):
         self.strategy = strategy
         self.symbols = symbols
@@ -91,6 +95,7 @@ class BacktestEngine:
         self.risk = risk
         self.account_type = account_type
         self.warmup_bars = warmup_bars
+        self.exits = exits if exits is not None else ExitConfig()
 
         self.data_source = AlpacaDataSource(
             api_key=alpaca_api_key,
@@ -189,6 +194,38 @@ class BacktestEngine:
             price = float(result.get("price", window.iloc[-1].get("close", 0)))
             if price <= 0:
                 continue
+
+            # Exit-rule pre-check: if a held position triggers stop-loss /
+            # take-profit / max-hold, close it now and skip the rest of this
+            # event. Runs before EOD close and before signal handling so a
+            # triggered exit beats both.
+            if symbol in open_positions and self.exits.is_active():
+                pos = open_positions[symbol]
+                reason = evaluate_exit(
+                    entry_price=pos.entry_price,
+                    current_price=price,
+                    entry_time=pos.entry_time,
+                    now=bar_time,
+                    config=self.exits,
+                )
+                if reason is not None:
+                    open_positions.pop(symbol)
+                    trade = self._close_position(pos, price, bar_time, reason)
+                    closed_trades.append(trade)
+                    capital += trade.pnl + pos.entry_price * pos.quantity
+                    stats.exit_rule_closes += 1
+                    logger.info(
+                        "backtest_exit_rule",
+                        symbol=symbol,
+                        date=bar_time.date().isoformat(),
+                        exit_price=price,
+                        entry_price=pos.entry_price,
+                        quantity=pos.quantity,
+                        pnl=trade.pnl,
+                        pnl_pct=trade.pnl_pct,
+                        reason=reason,
+                    )
+                    continue
 
             # EOD close for day trading (simulate 15:55 ET bar)
             if self.account_type == "day" and symbol in open_positions:

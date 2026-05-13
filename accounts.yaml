@@ -37,6 +37,14 @@ accounts:
       min_buying_power: 100.0
       min_trade_size_usd: 50.0
       buying_power_reserve_pct: 0.05
+    # Position-level exits — evaluated each scan against current_price and
+    # the most recent filled BUY's timestamp. Any field can be omitted to
+    # disable that rule. Without exits, a stuck position can hold a slot
+    # indefinitely (the RSI strategy only sells on overbought reversal).
+    exits:
+      stop_loss_pct: 0.08        # close if down 8% from entry
+      take_profit_pct: 0.25      # close if up 25% from entry
+      max_hold_days: 45          # close after 45 calendar days
 
   # Uncomment and provide key pairs to enable additional live accounts:
   #
@@ -148,6 +156,10 @@ backtest_accounts:
       min_buying_power: 100.0
       min_trade_size_usd: 50.0
       buying_power_reserve_pct: 0.05
+    exits:
+      stop_loss_pct: 0.08
+      take_profit_pct: 0.25
+      max_hold_days: 45
 
   - id: bt_swing_macd
     name: "Backtest Swing MACD"

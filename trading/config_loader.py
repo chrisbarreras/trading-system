@@ -9,6 +9,8 @@ from typing import List, Optional
 
 import yaml
 
+from trading.exit_rules import ExitConfig
+
 ENV_VAR_PATTERN = re.compile(r'^\$\{(.+)\}$')
 
 
@@ -46,6 +48,7 @@ class AccountConfig:
     strategy_name: str         # "rsi" | "macd" | "ma_cross" | "bb" | "combo"
     strategy_params: dict = field(default_factory=dict)
     risk: RiskConfig = field(default_factory=RiskConfig)
+    exits: ExitConfig = field(default_factory=ExitConfig)
 
 
 @dataclass
@@ -59,6 +62,7 @@ def _parse_account_list(raw_list: list) -> List[AccountConfig]:
     result = []
     for acc in raw_list:
         risk_raw = acc.get("risk", {})
+        exits_raw = acc.get("exits", {}) or {}
         result.append(AccountConfig(
             id=acc["id"],
             name=acc.get("name", acc["id"]),
@@ -68,6 +72,7 @@ def _parse_account_list(raw_list: list) -> List[AccountConfig]:
             strategy_name=acc["strategy"],
             strategy_params=acc.get("strategy_params", {}) or {},
             risk=RiskConfig(**risk_raw) if risk_raw else RiskConfig(),
+            exits=ExitConfig(**exits_raw),
         ))
     return result
 

@@ -73,6 +73,7 @@ def _run_account(
         alpaca_api_key=account_config.alpaca_api_key,
         alpaca_secret_key=account_config.alpaca_secret_key,
         account_type=account_config.type,
+        exits=account_config.exits,
     )
     return engine.run()
 

@@ -2,7 +2,7 @@
 AccountRunner: manages one Alpaca paper account.
 Scans the symbol universe, generates signals, and executes trades directly.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 import structlog
 
@@ -18,6 +18,7 @@ from scanner.strategies import (
 )
 from trading.config_loader import AccountConfig
 from trading.direct_executor import DirectExecutor
+from trading.exit_rules import evaluate_exit
 
 logger = structlog.get_logger()
 
@@ -88,6 +89,44 @@ class AccountRunner:
         open_count = len(held_symbols)
 
         bought, sold, skipped = 0, 0, 0
+
+        # ------------------------------------------------------------------
+        # Pre-pass: evaluate exit rules (stop-loss / take-profit / max-hold)
+        # against every held position. Exits run before the per-symbol scan
+        # so freed slots are available for new buys in the same cycle.
+        # ------------------------------------------------------------------
+        if self.config.exits.is_active() and positions:
+            try:
+                entry_times = self.broker.get_position_entry_times(list(held_symbols))
+            except Exception as e:
+                self.log.error("failed_to_fetch_entry_times", error=str(e))
+                entry_times = {}
+
+            now = datetime.now(timezone.utc)
+            for pos in positions:
+                symbol = pos["symbol"]
+                reason = evaluate_exit(
+                    entry_price=pos["avg_entry_price"],
+                    current_price=pos["current_price"],
+                    entry_time=entry_times.get(symbol),
+                    now=now,
+                    config=self.config.exits,
+                )
+                if reason is None:
+                    continue
+                self.log.info(
+                    "exit_rule_triggered",
+                    symbol=symbol,
+                    reason=reason,
+                    entry_price=pos["avg_entry_price"],
+                    current_price=pos["current_price"],
+                )
+                order = self.executor.execute_sell(symbol=symbol)
+                if order:
+                    held_symbols.discard(symbol)
+                    open_count -= 1
+                    account_info["open_positions"] = open_count
+                    sold += 1
 
         for symbol in self.symbols:
             try:

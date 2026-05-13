@@ -80,6 +80,7 @@ def _print_signal_stats(s: dict) -> None:
     sell_exec = s["sell_executed"]
     sell_skip = s["sell_skipped_not_holding"]
     eob = s["eob_closes"]
+    exit_rule = s.get("exit_rule_closes", 0)
 
     pct_with_signal = f"({buy_exec / scanned * 100:.1f}% of symbols)" if scanned else ""
     exec_pct = f"({buy_exec / buy_total * 100:.0f}% of signals)" if buy_total else ""
@@ -99,6 +100,8 @@ def _print_signal_stats(s: dict) -> None:
         print(f"  {'Sell skipped (not holding):':<28} {sell_skip:>5}")
     if eob:
         print(f"  {'Closed at end-of-backtest:':<28} {eob:>5}")
+    if exit_rule:
+        print(f"  {'Closed by exit rule:':<28} {exit_rule:>5}")
 
 
 def write_csv(trades: List[dict], path: str) -> None:
